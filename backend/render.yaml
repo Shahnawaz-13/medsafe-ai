@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: medsafe-backend
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: CLAUDE_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: OPENFDA_API_KEY
+        sync: false
+      - key: CLERK_JWT_ISSUER
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ENVIRONMENT
+        value: production
