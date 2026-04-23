@@ -2,150 +2,155 @@
 import httpx
 import asyncio
 import logging
-from typing import List, Dict, Optional
-from app.config import settings
-from app.utils.helpers import sanitize_drug_name
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-RXNORM_BASE = settings.rxnorm_base_url
-TIMEOUT     = 4.0   # seconds
+RXNORM_BASE = "https://rxnav.nlm.nih.gov/REST"
 
 
-async def normalize_drug_name(drug_name: str) -> Dict:
+async def normalize_drug(drug_name: str) -> dict:
     """
-    Normalize a single drug name to its canonical RxNorm form.
+    Normalize a single drug name via RxNorm.
 
-    Returns dict with:
-      - input_name:       original input
-      - normalized_name:  canonical name from RxNorm
-      - rxcui:            RxNorm concept unique identifier
-      - found:            True if matched in RxNorm
+    Returns:
+    {
+        "input_name":       original input,
+        "normalized_name":  best match name from RxNorm,
+        "rxcui":            RxCUI string or None,
+        "found":            True/False
+    }
     """
-    clean_name = sanitize_drug_name(drug_name)
-
-    if not clean_name or len(clean_name) < 2:
+    name = drug_name.strip()
+    if not name:
         return _not_found(drug_name)
+
+    # Strategy 1 — exact match
+    result = await _exact_match(name)
+    if result:
+        return result
+
+    # Strategy 2 — approximate match
+    result = await _approximate_match(name)
+    if result:
+        return result
+
+    logger.warning(f"RxNorm: no match for '{name}'")
+    return _not_found(drug_name)
+
+
+async def _exact_match(name: str) -> Optional[dict]:
+    """
+    GET /REST/rxcui.json?name={name}&search=1
+
+    Response shape:
+    {
+      "idGroup": {
+        "name": "Warfarin",
+        "rxnormId": ["11289"]     <-- this is what we need
+      }
+    }
+    """
+    url = f"{RXNORM_BASE}/rxcui.json"
+    params = {"name": name, "search": "1"}
 
     try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            # Try exact match first (faster)
-            exact = await _try_exact_match(client, clean_name)
-            if exact:
-                logger.info(
-                    f"RxNorm exact match: '{drug_name}' → "
-                    f"'{exact['normalized_name']}' ({exact['rxcui']})"
-                )
-                return exact
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
 
-            # Fall back to approximate match
-            approx = await _try_approx_match(client, clean_name)
-            if approx:
-                logger.info(
-                    f"RxNorm approx match: '{drug_name}' → "
-                    f"'{approx['normalized_name']}' ({approx['rxcui']})"
-                )
-                return approx
+            # Navigate the correct key path
+            id_group = data.get("idGroup", {})
+            rxnorm_ids = id_group.get("rxnormId")  # this is a LIST
 
-            logger.warning(f"RxNorm: no match for '{drug_name}'")
-            return _not_found(drug_name)
-
-    except httpx.TimeoutException:
-        logger.error(f"RxNorm timeout for '{drug_name}'")
-        return _not_found(drug_name)
-    except Exception as e:
-        logger.error(f"RxNorm error for '{drug_name}': {e}")
-        return _not_found(drug_name)
-
-
-async def _try_exact_match(
-    client: httpx.AsyncClient,
-    name: str
-) -> Optional[Dict]:
-    """Try RxNorm exact drug name lookup."""
-    try:
-        url = f"{RXNORM_BASE}/drugs.json"
-        resp = await client.get(url, params={"name": name})
-
-        if resp.status_code != 200:
-            return None
-
-        data = resp.json()
-        drug_group = data.get("drugGroup", {})
-        concept_group = drug_group.get("conceptGroup", [])
-
-        for group in concept_group:
-            concepts = group.get("conceptProperties", [])
-            if concepts:
-                best = concepts[0]
+            if rxnorm_ids and len(rxnorm_ids) > 0:
+                rxcui = rxnorm_ids[0]
+                normalized_name = id_group.get("name", name)
+                logger.info(f"RxNorm exact: '{name}' → RxCUI {rxcui}")
                 return {
                     "input_name":      name,
-                    "normalized_name": best.get("name", name),
-                    "rxcui":           best.get("rxcui"),
+                    "normalized_name": normalized_name,
+                    "rxcui":           rxcui,
                     "found":           True,
                 }
-    except Exception:
-        pass
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:
+            logger.error(f"RxNorm exact HTTP error for '{name}': {e}")
+    except Exception as e:
+        logger.error(f"RxNorm exact error for '{name}': {e}")
+
     return None
 
 
-async def _try_approx_match(
-    client: httpx.AsyncClient,
-    name: str
-) -> Optional[Dict]:
-    """Try RxNorm approximate term matching."""
+async def _approximate_match(name: str) -> Optional[dict]:
+    """
+    GET /REST/approximateTerm.json?term={name}&maxEntries=5
+
+    Response shape:
+    {
+      "approximateGroup": {
+        "inputTerm": "Warfarin",
+        "candidate": [
+          {"rxcui": "11289", "rxaui": "...", "score": "100", "rank": "1"},
+          ...
+        ]
+      }
+    }
+    """
+    url = f"{RXNORM_BASE}/approximateTerm.json"
+    params = {"term": name, "maxEntries": "5"}
+
     try:
-        url = f"{RXNORM_BASE}/approximateTerm.json"
-        resp = await client.get(
-            url,
-            params={"term": name, "maxEntries": 1}
-        )
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+            data = r.json()
 
-        if resp.status_code != 200:
-            return None
+            # Navigate the correct key path
+            group = data.get("approximateGroup", {})
+            candidates = group.get("candidate", [])  # this is a LIST of dicts
 
-        data = resp.json()
-        approx_group = data.get("approximateGroup", {})
-        candidates = approx_group.get("candidate", [])
+            if candidates:
+                best = candidates[0]
+                rxcui = best.get("rxcui")
+                if rxcui:
+                    # Fetch the proper name for this rxcui
+                    normalized_name = await _get_name_for_rxcui(rxcui) or name
+                    logger.info(f"RxNorm approx: '{name}' → RxCUI {rxcui}")
+                    return {
+                        "input_name":      name,
+                        "normalized_name": normalized_name,
+                        "rxcui":           rxcui,
+                        "found":           True,
+                    }
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 404:
+            logger.error(f"RxNorm approx HTTP error for '{name}': {e}")
+    except Exception as e:
+        logger.error(f"RxNorm approx error for '{name}': {e}")
 
-        if candidates:
-            best = candidates[0]
-            rxcui = best.get("rxcui")
-            # Get full name from rxcui
-            name_result = await _get_name_from_rxcui(
-                client, rxcui
-            )
-            return {
-                "input_name":      name,
-                "normalized_name": name_result or name,
-                "rxcui":           rxcui,
-                "found":           True,
-            }
-    except Exception:
-        pass
     return None
 
 
-async def _get_name_from_rxcui(
-    client: httpx.AsyncClient,
-    rxcui: str
-) -> Optional[str]:
-    """Get canonical drug name from RxCUI."""
+async def _get_name_for_rxcui(rxcui: str) -> Optional[str]:
+    """
+    GET /REST/rxcui/{rxcui}/properties.json
+    Returns the official drug name for a given RxCUI.
+    """
+    url = f"{RXNORM_BASE}/rxcui/{rxcui}/properties.json"
     try:
-        url = f"{RXNORM_BASE}/rxcui/{rxcui}/properties.json"
-        resp = await client.get(url)
-
-        if resp.status_code == 200:
-            data = resp.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
             props = data.get("properties", {})
             return props.get("name")
     except Exception:
-        pass
-    return None
+        return None
 
 
-def _not_found(drug_name: str) -> Dict:
-    """Return a standardised not-found result."""
+def _not_found(drug_name: str) -> dict:
     return {
         "input_name":      drug_name,
         "normalized_name": drug_name,
@@ -154,24 +159,28 @@ def _not_found(drug_name: str) -> Dict:
     }
 
 
-async def normalize_drug_list(drug_names: List[str]) -> List[Dict]:
-    """
-    Normalize a list of drug names concurrently.
-    Uses asyncio.gather for parallel API calls.
-    """
-    tasks = [normalize_drug_name(name) for name in drug_names]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+async def normalize_drug_list(drug_names: list[str]) -> list[dict]:
+    """Normalize a list of drug names concurrently."""
+    tasks = [normalize_drug(name) for name in drug_names]
+    return await asyncio.gather(*tasks)
 
-    # Replace any exceptions with not-found results
-    cleaned = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error(
-                f"Normalisation failed for "
-                f"'{drug_names[i]}': {result}"
+
+# ── Quick diagnostic — run: python -m app.services.normaliser ────────────────
+if __name__ == "__main__":
+    async def _debug():
+        test_drugs = [
+            "Warfarin", "Aspirin", "Metformin",
+            "Lisinopril", "Atorvastatin", "xyzfake999"
+        ]
+        print(f"\nTesting {len(test_drugs)} drugs against RxNorm live API\n")
+        results = await normalize_drug_list(test_drugs)
+        for r in results:
+            icon = "✅" if r["found"] else "❌"
+            print(
+                f"  {icon} {r['input_name']:15} → "
+                f"{r['normalized_name']:30} | RxCUI: {r['rxcui']}"
             )
-            cleaned.append(_not_found(drug_names[i]))
-        else:
-            cleaned.append(result)
+        found = sum(1 for r in results if r["found"])
+        print(f"\nResult: {found}/{len(test_drugs)} resolved")
 
-    return cleaned
+    asyncio.run(_debug())

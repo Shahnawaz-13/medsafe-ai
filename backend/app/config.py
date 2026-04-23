@@ -5,29 +5,35 @@ from pydantic import field_validator
 
 
 class Settings(BaseSettings):
-    # AI
+
+    # ── AI (Groq — Free) ──────────────────────────────────────────────
+    groq_api_key:   str = ""
+    ai_provider:    str = "groq"
+
+    # Keep others as optional fallback
+    gemini_api_key: str = ""
     claude_api_key: str = ""
 
-    # Medical APIs
+    # ── Medical APIs ──────────────────────────────────────────────────
     openfda_api_key: str = ""
     rxnorm_base_url: str = "https://rxnav.nlm.nih.gov/REST"
 
-    # Database
-    mongodb_uri: str = ""
+    # ── Database ──────────────────────────────────────────────────────
+    mongodb_uri:     str = ""
     mongodb_db_name: str = "medsafe"
 
-    # Auth
+    # ── Auth ──────────────────────────────────────────────────────────
     clerk_jwt_issuer: str = ""
 
-    # App
-    allowed_origins: List[str] = ["http://localhost:3000"]
-    environment: str = "development"
-    log_level: str = "INFO"
-    max_drugs_per_request: int = 15
-    cache_ttl_days: int = 7
-    rate_limit_per_minute: int = 30
+    # ── App ───────────────────────────────────────────────────────────
+    allowed_origins:        List[str] = ["http://localhost:3000"]
+    environment:            str = "development"
+    log_level:              str = "INFO"
+    max_drugs_per_request:  int = 15
+    cache_ttl_days:         int = 7
+    rate_limit_per_minute:  int = 30
 
-    # Disclaimer
+    # ── Disclaimer ────────────────────────────────────────────────────
     disclaimer: str = (
         "MedSafe AI provides general drug interaction information "
         "for educational purposes only. This tool does not constitute "
@@ -37,18 +43,15 @@ class Settings(BaseSettings):
         "In case of emergency, call your local emergency services."
     )
 
-    # ── This validator handles BOTH formats ──────────────────────────
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def parse_origins(cls, v):
         if isinstance(v, str):
-            # Handle comma-separated string
-            # e.g. "http://localhost:3000,https://app.vercel.app"
-            return [origin.strip() for origin in v.split(",")]
+            return [o.strip() for o in v.split(",")]
         return v
 
     class Config:
-        env_file = ".env"
+        env_file          = ".env"
         env_file_encoding = "utf-8"
 
 

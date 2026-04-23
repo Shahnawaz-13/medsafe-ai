@@ -1,0 +1,145 @@
+# tests/test_day9.py
+import pytest
+import re
+from app.services.severity_classifier import (
+    classify_severity,
+    get_severity_emoji,
+    get_overall_severity,
+    severity_to_display,
+    CONTRAINDICATED_PATTERNS,
+    HIGH_PATTERNS,
+    MODERATE_PATTERNS,
+    LOW_PATTERNS,
+)
+from app.services.cache_service import (
+    _build_pair_key,
+    _get_age_hours,
+)
+from datetime import datetime, timedelta
+
+
+# ── Regex pattern tests ───────────────────────────────────────────────
+def test_all_contraindicated_patterns_compile():
+    """All regex patterns must be valid."""
+    for p in CONTRAINDICATED_PATTERNS:
+        assert re.compile(p, re.IGNORECASE)
+
+
+def test_all_high_patterns_compile():
+    for p in HIGH_PATTERNS:
+        assert re.compile(p, re.IGNORECASE)
+
+
+def test_all_moderate_patterns_compile():
+    for p in MODERATE_PATTERNS:
+        assert re.compile(p, re.IGNORECASE)
+
+
+def test_all_low_patterns_compile():
+    for p in LOW_PATTERNS:
+        assert re.compile(p, re.IGNORECASE)
+
+
+# ── Severity classification edge cases ───────────────────────────────
+def test_serotonin_syndrome_is_high():
+    text = "Risk of serotonin syndrome when combined."
+    assert classify_severity(text) == "high"
+
+
+def test_rhabdomyolysis_is_high():
+    text = "May cause rhabdomyolysis in some patients."
+    assert classify_severity(text) == "high"
+
+
+def test_qt_prolongation_is_high():
+    text = "QT prolongation has been reported."
+    assert classify_severity(text) == "high"
+
+
+def test_mixed_signals_contraindicated_wins():
+    """When both HIGH and CONTRAINDICATED patterns present,
+    CONTRAINDICATED must win."""
+    text = (
+        "Serious risk. This combination is contraindicated "
+        "in all patients."
+    )
+    assert classify_severity(text) == "contraindicated"
+
+
+def test_case_insensitive():
+    assert classify_severity("CONTRAINDICATED") == "contraindicated"
+    assert classify_severity("Serious Risk") == "high"
+    assert classify_severity("MONITOR CLOSELY") == "moderate"
+
+
+def test_very_long_text():
+    """Should handle very long interaction texts."""
+    long_text = "Generally safe. " * 500 + "Serious risk."
+    result = classify_severity(long_text)
+    assert result in ["high", "low", "none"]
+
+
+def test_none_on_neutral_text():
+    text = "These drugs work through different mechanisms."
+    assert classify_severity(text) == "none"
+
+
+# ── Severity display config tests ─────────────────────────────────────
+def test_contraindicated_is_urgent():
+    config = severity_to_display("contraindicated")
+    assert config["urgent"] is True
+    assert config["emoji"] == "🚫"
+
+
+def test_high_is_urgent():
+    config = severity_to_display("high")
+    assert config["urgent"] is True
+
+
+def test_low_not_urgent():
+    config = severity_to_display("low")
+    assert config["urgent"] is False
+
+
+def test_none_not_urgent():
+    config = severity_to_display("none")
+    assert config["urgent"] is False
+
+
+# ── Cache key tests ───────────────────────────────────────────────────
+def test_cache_key_order_independent():
+    k1 = _build_pair_key("111", "222", "Drug A", "Drug B")
+    k2 = _build_pair_key("222", "111", "Drug B", "Drug A")
+    assert k1 == k2
+
+
+def test_cache_key_fallback_to_names():
+    k1 = _build_pair_key(None, None, "warfarin", "aspirin")
+    k2 = _build_pair_key(None, None, "aspirin", "warfarin")
+    assert k1 == k2
+
+
+def test_cache_age_calculation():
+    old_time = datetime.utcnow() - timedelta(hours=5)
+    age      = _get_age_hours(old_time)
+    assert 4.9 < age < 5.1
+
+
+def test_cache_age_none_returns_zero():
+    assert _get_age_hours(None) == 0.0
+
+
+# ── Overall severity tests ────────────────────────────────────────────
+def test_empty_list_returns_none():
+    assert get_overall_severity([]) == "none"
+
+
+def test_single_high_returns_high():
+    assert get_overall_severity(["high"]) == "high"
+
+
+def test_mixed_list_contraindicated_wins():
+    result = get_overall_severity(
+        ["low", "moderate", "contraindicated", "high"]
+    )
+    assert result == "contraindicated"
