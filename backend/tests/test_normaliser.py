@@ -1,12 +1,11 @@
 # tests/test_normaliser.py
+
 import pytest
 from app.services.normaliser import (
     normalize_drug,
     normalize_drug_list,
-    _not_found,
     sanitize_drug,
 )
-from app.utils.helpers import sanitize_drug
 
 
 @pytest.mark.asyncio
@@ -42,7 +41,16 @@ async def test_normalize_empty_string():
 async def test_normalize_list_concurrent():
     drugs = ["Warfarin", "Aspirin", "Metformin"]
     results = await normalize_drug_list(drugs)
+
     assert len(results) == 3
     assert all(isinstance(r, dict) for r in results)
+
     found_count = sum(1 for r in results if r["found"])
-    assert found_count >= 2   # at least 2 of 3 should be found
+    assert found_count >= 2
+
+
+# ✅ Added simple unit test for sanitize_drug
+def test_sanitize_drug():
+    assert sanitize_drug(" Aspirin!! ") == "aspirin"
+    assert sanitize_drug("Warfarin 123") == "warfarin 123"
+    assert sanitize_drug("") == ""

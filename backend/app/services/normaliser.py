@@ -4,6 +4,26 @@ import asyncio
 import logging
 from typing import Optional
 
+
+import re
+
+def sanitize_drug(drug: str) -> str:
+    """Basic cleaning used by tests."""
+    if not drug:
+        return ""
+    return re.sub(r'[^a-zA-Z0-9\s]', '', drug).strip().lower()
+
+
+def normalize_drug_name(drug: str) -> str:
+    """
+    Sync wrapper expected by tests.
+    Uses simple normalization (NOT API).
+    """
+    drug = sanitize_drug(drug)
+    return drug.capitalize()
+
+
+
 logger = logging.getLogger(__name__)
 
 RXNORM_BASE = "https://rxnav.nlm.nih.gov/REST"

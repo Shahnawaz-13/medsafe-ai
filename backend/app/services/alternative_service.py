@@ -34,8 +34,8 @@ def get_alternatives(
         return []
 
     # Build lookup key (order-independent)
-    d1_lower = drug1.lower()
-    d2_lower = drug2.lower()
+    d1_lower = (drug1 or "").strip().lower()
+    d2_lower = (drug2 or "").strip().lower()
 
     key1 = f"{d1_lower}|{d2_lower}"
     key2 = f"{d2_lower}|{d1_lower}"
