@@ -1,5 +1,4 @@
 // types/index.ts
-
 export type Severity =
   | "low"
   | "moderate"
@@ -8,63 +7,79 @@ export type Severity =
   | "none";
 
 export interface InteractionPair {
-  drug1: string;
-  drug2: string;
-  severity: Severity;
-  severityEmoji: string;
-  plainExplanation: string;
-  whatToWatchFor: string;
-  actionRequired: string;
+  drug1:             string;
+  drug2:             string;
+  severity:          Severity;
+  severityEmoji:     string;
+  plainExplanation:  string;
+  whatToWatchFor:    string;
+  actionRequired:    string;
   saferAlternatives: string[];
-  mechanism: string;
-  sources: string[];
+  mechanism:         string;
+  sources:           string[];
+}
+
+export interface DrugEntry {
+  inputName:      string;
+  normalizedName: string;
+  rxcui?:         string;
+  identified:     boolean;
 }
 
 export interface AnalysisResult {
-  checkId: string;
-  pairs: InteractionPair[];
-  overallSeverity: Severity;
-  summary: string;
-  disclaimer: string;
-  generatedAt: string;
-  cached: boolean;
+  checkId:           string;
+  drugsSubmitted:    number;
+  drugsIdentified:   number;
+  drugList:          DrugEntry[];
+  pairsChecked:      number;
+  interactionsFound: number;
+  pairs:             InteractionPair[];
+  overallSeverity:   Severity;
+  overallEmoji:      string;
+  summary:           string;
+  disclaimer:        string;
+  generatedAt:       string;
+  responseTimeMs:    number;
+  aiProvider:        string;
+  cachedPairs:       number;
+  isFallback:        boolean;
 }
 
 export interface DrugSuggestion {
-  name: string;
+  name:  string;
   rxcui: string;
+  score?: number;
 }
 
 export interface Message {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: string;
+  role:              "user" | "assistant";
+  content:           string;
+  timestamp:         string;
   interactionsFound?: InteractionPair[];
 }
 
 export interface HistoryItem {
-  id: string;
-  drugs: string[];
-  date: string;
-  overallSeverity: Severity;
-  result: AnalysisResult;
-}
-
-export interface DrugEntry {
-  inputName: string;
-  normalizedName: string;
-  rxcui?: string;
+  checkId:           string;
+  drugs:             DrugEntry[];
+  overallSeverity:   Severity;
+  interactionsFound: number;
+  timestamp:         string;
 }
 
 export interface AnalyzeRequest {
-  drugs: string[];
-  age?: number;
-  gender?: string;
+  drugs:      string[];
+  age?:       number;
+  gender?:    string;
   allergies?: string[];
   sessionId?: string;
 }
 
-export interface ChatRequest {
-  message: string;
-  history: Message[];
+export interface ChatMessage {
+  role:    "user" | "assistant";
+  content: string;
+}
+
+export interface AutocompleteResult {
+  suggestions: DrugSuggestion[];
+  fromCache:   boolean;
 }
