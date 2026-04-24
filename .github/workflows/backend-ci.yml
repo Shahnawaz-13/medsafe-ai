@@ -1,0 +1,65 @@
+name: MedSafe AI — Backend CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Run Backend Tests
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create test .env
+        working-directory: backend
+        run: |
+          echo "CLAUDE_API_KEY=test_key" > .env
+          echo "OPENFDA_API_KEY=test_key" >> .env
+          echo "MONGODB_URI=mongodb://localhost:27017/medsafe_test" >> .env
+          echo "MONGODB_DB_NAME=medsafe_test" >> .env
+          echo "CLERK_JWT_ISSUER=https://test.clerk.accounts.dev" >> .env
+          echo "ALLOWED_ORIGINS=http://localhost:3000" >> .env
+          echo "ENVIRONMENT=test" >> .env
+          echo "LOG_LEVEL=ERROR" >> .env
+
+      - name: Run unit tests only
+        working-directory: backend
+        run: |
+          pytest tests/ -v \
+            --ignore=tests/test_interaction_resolver.py \
+            -m "not integration" \
+            --tb=short
+
+      - name: Check import health
+        working-directory: backend
+        run: |
+          python -c "from app.config import settings; print('Config OK')"
+          python -c "from app.services.normaliser import normalize_drug_name; print('Normaliser OK')"
+          python -c "from app.services.pair_generator import generate_pairs; print('Pairs OK')"
+          python -c "from app.services.severity_classifier import classify_severity; print('Classifier OK')"
