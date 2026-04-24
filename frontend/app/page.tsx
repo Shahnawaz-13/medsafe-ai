@@ -4,8 +4,6 @@ import {
   Shield,
   Brain,
   Database,
-  AlertTriangle,
-  CheckCircle2,
   ArrowRight,
   Zap,
   Lock,

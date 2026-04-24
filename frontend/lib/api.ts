@@ -2,50 +2,80 @@ import { AnalysisResult, AnalyzeRequest, DrugSuggestion } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// ── Response mapper ───────────────────────────────────────────────────────────
+type ApiObject = Record<string, unknown>;
 
-function mapAnalysisResponse(data: any): AnalysisResult {
+function asObject(value: unknown): ApiObject {
+  return value && typeof value === "object" ? (value as ApiObject) : {};
+}
+
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" ? value : fallback;
+}
+
+function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function mapAnalysisResponse(data: unknown): AnalysisResult {
+  const obj = asObject(data);
+
   return {
-    checkId:          data.check_id,
-    drugsSubmitted:   data.drugs_submitted,
-    drugsIdentified:  data.drugs_identified,
-    drugList: (data.drug_list || []).map((d: any) => ({
-      inputName:      d.input_name,
-      normalizedName: d.normalized_name,
-      rxcui:          d.rxcui,
-      identified:     d.identified,
-    })),
-    pairsChecked:       data.pairs_checked,
-    interactionsFound:  data.interactions_found,
-    pairs: (data.pairs || []).map((p: any) => ({
-      drug1:             p.drug1,
-      drug2:             p.drug2,
-      severity:          p.severity,
-      severityEmoji:     p.severity_emoji     || "⚪",
-      plainExplanation:  p.plain_explanation  || "",
-      whatToWatchFor:    p.what_to_watch_for  || "",
-      actionRequired:    p.action_required    || "",
-      saferAlternatives: p.safer_alternatives || [],
-      mechanism:         p.mechanism          || "",
-      sources:           p.sources            || [],
-    })),
-    overallSeverity: data.overall_severity,
-    overallEmoji:    data.overall_emoji   || "⚪",
-    summary:         data.summary         || "",
-    disclaimer:      data.disclaimer      || "",
-    generatedAt:     data.generated_at    || "",
-    responseTimeMs:  data.response_time_ms || 0,
-    aiProvider:      data.ai_provider     || "groq",
-    cachedPairs:     data.cached_pairs    || 0,
-    isFallback:      data.is_fallback     || false,
+    checkId: asString(obj.check_id),
+    drugsSubmitted: asNumber(obj.drugs_submitted),
+    drugsIdentified: asNumber(obj.drugs_identified),
+
+    drugList: asArray(obj.drug_list).map((item) => {
+      const d = asObject(item);
+      return {
+        inputName: asString(d.input_name),
+        normalizedName: asString(d.normalized_name),
+        rxcui: asString(d.rxcui),
+        identified: asBoolean(d.identified),
+      };
+    }),
+
+    pairsChecked: asNumber(obj.pairs_checked),
+    interactionsFound: asNumber(obj.interactions_found),
+
+    pairs: asArray(obj.pairs).map((item) => {
+      const p = asObject(item);
+      return {
+        drug1: asString(p.drug1),
+        drug2: asString(p.drug2),
+        severity: asString(p.severity, "none") as AnalysisResult["pairs"][number]["severity"],
+        severityEmoji: asString(p.severity_emoji, "⚪"),
+        plainExplanation: asString(p.plain_explanation),
+        whatToWatchFor: asString(p.what_to_watch_for),
+        actionRequired: asString(p.action_required),
+        saferAlternatives: asArray(p.safer_alternatives).map((x) => asString(x)),
+        mechanism: asString(p.mechanism),
+        sources: asArray(p.sources).map((x) => asString(x)),
+      };
+    }),
+
+    overallSeverity: asString(obj.overall_severity, "none") as AnalysisResult["overallSeverity"],
+    overallEmoji: asString(obj.overall_emoji, "⚪"),
+    summary: asString(obj.summary),
+    disclaimer: asString(obj.disclaimer),
+    generatedAt: asString(obj.generated_at),
+    responseTimeMs: asNumber(obj.response_time_ms),
+    aiProvider: asString(obj.ai_provider, "groq"),
+    cachedPairs: asNumber(obj.cached_pairs),
+    isFallback: asBoolean(obj.is_fallback),
   };
 }
 
-// ── Generic response handler ──────────────────────────────────────────────────
-
 async function handleResponse<T>(res: Response): Promise<T> {
   const contentType = res.headers.get("content-type") || "";
-  let data: any = null;
+  let data: unknown = null;
 
   if (contentType.includes("application/json")) {
     data = await res.json();
@@ -55,39 +85,53 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
 
   if (!res.ok) {
+    const errorData = asObject(data);
+
     throw new Error(
-      data?.detail ||
-      data?.message ||
-      `Request failed with status ${res.status}`
+      asString(errorData.detail) ||
+        asString(errorData.message) ||
+        `Request failed with status ${res.status}`
     );
   }
 
   return data as T;
 }
 
-// ── Guard helper ──────────────────────────────────────────────────────────────
-
 function requireApiUrl(): string {
-  if (!API_URL) throw new Error("NEXT_PUBLIC_API_URL is not defined");
+  if (!API_URL) {
+    throw new Error("NEXT_PUBLIC_API_URL is not defined");
+  }
   return API_URL;
 }
-
-// ── Drug autocomplete ─────────────────────────────────────────────────────────
 
 export async function getDrugAutocomplete(
   query: string
 ): Promise<DrugSuggestion[]> {
   const base = requireApiUrl();
   const trimmed = query.trim();
+
   if (trimmed.length < 2) return [];
 
   const res = await fetch(
     `${base}/api/drug-autocomplete?q=${encodeURIComponent(trimmed)}`
   );
-  return handleResponse<DrugSuggestion[]>(res);
-}
 
-// ── Drug interaction analysis ─────────────────────────────────────────────────
+  const data = await handleResponse<unknown>(res);
+
+  const suggestions = Array.isArray(data)
+    ? data
+    : asArray(asObject(data).suggestions);
+
+  return suggestions
+    .map((item) => {
+      const obj = asObject(item);
+      return {
+        name: asString(obj.name || obj.drug_name || obj.display_name || obj.term),
+        rxcui: asString(obj.rxcui || obj.id),
+      };
+    })
+    .filter((item) => item.name);
+}
 
 export async function analyzeInteractions(
   payload: AnalyzeRequest
@@ -95,22 +139,20 @@ export async function analyzeInteractions(
   const base = requireApiUrl();
 
   const res = await fetch(`${base}/api/analyze-interaction`, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      drugs:      payload.drugs,
-      age:        payload.age,
-      gender:     payload.gender,
-      allergies:  payload.allergies,
+      drugs: payload.drugs,
+      age: payload.age,
+      gender: payload.gender,
+      allergies: payload.allergies,
       session_id: payload.sessionId,
     }),
   });
 
-  const data = await handleResponse<any>(res);
+  const data = await handleResponse<unknown>(res);
   return mapAnalysisResponse(data);
 }
-
-// ── RxChat ────────────────────────────────────────────────────────────────────
 
 export async function sendChatMessage(
   message: string,
@@ -119,47 +161,53 @@ export async function sendChatMessage(
   const base = requireApiUrl();
 
   const res = await fetch(`${base}/api/chat`, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       message,
       current_drugs: currentDrugs,
     }),
   });
+
   return handleResponse<{ response: string }>(res);
 }
 
-// ── History ───────────────────────────────────────────────────────────────────
-
 export interface HistoryItem {
-  checkId:      string;
+  checkId: string;
   drugsChecked: string[];
-  severity:     string;
-  checkedAt:    string;
-  pairsFound:   number;
+  severity: string;
+  checkedAt: string;
+  pairsFound: number;
+}
+
+export interface HistoryApiResponse {
+  checks: HistoryItem[];
+  total: number;
 }
 
 export async function getHistory(
-  limit  = 20,
+  limit = 20,
   offset = 0
-): Promise<HistoryItem[]> {
+): Promise<HistoryItem[] | HistoryApiResponse> {
   const base = requireApiUrl();
 
   const res = await fetch(
     `${base}/api/history?limit=${limit}&offset=${offset}`,
     {
-      method:  "GET",
+      method: "GET",
       headers: { "Content-Type": "application/json" },
     }
   );
-  return handleResponse<HistoryItem[]>(res);
+
+  return handleResponse<HistoryItem[] | HistoryApiResponse>(res);
 }
 
 export async function getHistoryItem(checkId: string): Promise<AnalysisResult> {
   const base = requireApiUrl();
 
   const res = await fetch(`${base}/api/history/${checkId}`);
-  const data = await handleResponse<any>(res);
+  const data = await handleResponse<unknown>(res);
+
   return mapAnalysisResponse(data);
 }
 
@@ -169,21 +217,18 @@ export async function deleteHistoryItem(checkId: string): Promise<void> {
   const res = await fetch(`${base}/api/history/${checkId}`, {
     method: "DELETE",
   });
-  await handleResponse<void>(res);
-}
 
-// ── Prescription upload (OCR) ─────────────────────────────────────────────────
+  await handleResponse<unknown>(res);
+}
 
 export interface UploadResult {
-  drugs:       string[];
-  rawText:     string;
-  confidence:  number;
-  message:     string;
+  drugs: string[];
+  rawText: string;
+  confidence: number;
+  message: string;
 }
 
-export async function uploadPrescription(
-  file: File
-): Promise<UploadResult> {
+export async function uploadPrescription(file: File): Promise<UploadResult> {
   const base = requireApiUrl();
 
   const form = new FormData();
@@ -191,26 +236,25 @@ export async function uploadPrescription(
 
   const res = await fetch(`${base}/api/upload-prescription`, {
     method: "POST",
-    body:   form,
-    // Do NOT set Content-Type — browser sets it automatically with boundary
+    body: form,
   });
+
   return handleResponse<UploadResult>(res);
 }
 
-// ── Drug info ─────────────────────────────────────────────────────────────────
-
 export interface DrugInfo {
-  rxcui:        string;
-  name:         string;
-  drugClass:    string;
-  commonUses:   string;
-  sideEffects:  string;
-  brandNames:   string[];
+  rxcui: string;
+  name: string;
+  drugClass: string;
+  commonUses: string;
+  sideEffects: string;
+  brandNames: string[];
 }
 
 export async function getDrugInfo(rxcui: string): Promise<DrugInfo> {
   const base = requireApiUrl();
 
   const res = await fetch(`${base}/api/drug-info/${rxcui}`);
+
   return handleResponse<DrugInfo>(res);
 }

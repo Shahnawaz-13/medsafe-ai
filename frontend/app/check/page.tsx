@@ -8,7 +8,6 @@ import {
   Download,
   RotateCcw,
   AlertCircle,
-  CheckCircle2,
 } from "lucide-react";
 import DrugInputTag, { DrugTag } from "@/components/DrugInputTag";
 import PersonalizeSection    from "@/components/PersonalizeSection";
@@ -95,10 +94,11 @@ export default function CheckPage() {
         });
       }, 200);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setErrorMsg(
-        err?.message ||
-        "Something went wrong. Please try again."
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again."
       );
       setPageState("error");
     }

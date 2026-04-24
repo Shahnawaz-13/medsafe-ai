@@ -125,15 +125,32 @@ export default function UploadPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        
+        const errorMessage =
+          typeof body === "object" && body !== null && "detail" in body
+            ? (body as { detail?: { message?: string } }).detail?.message
+            : undefined;
+
         throw new Error(
-          body?.detail?.message ||
-          "Extraction failed. Please try a clearer image."
+          errorMessage || "Extraction failed. Please try a clearer image."
         );
       }
 
-      const data = await res.json();
-      const drugs: string[] = data.extracted_drugs || [];
+      const data: unknown = await res.json();
 
+      const dataObj = 
+        typeof data === "object" && data !== null
+          ? (data as { 
+              extracted_drugs?: unknown;
+              confidence?: unknown;
+            })
+          : {};
+
+      const drugs= Array.isArray(dataObj.extracted_drugs)
+            ? dataObj.extracted_drugs.filter(
+                (drug): drug is string => typeof drug === "string" 
+              )
+            : [];
       if (drugs.length === 0) {
         throw new Error(
           "No drug names could be extracted. " +
@@ -142,14 +159,23 @@ export default function UploadPage() {
       }
 
       setExtractedDrugs(
-        drugs.map((name: string) => ({ name, selected: true }))
+        drugs.map((name) => ({ name, selected: true }))
       );
-      setConfidence(data.confidence || 0);
+
+      setConfidence(
+        typeof dataObj.confidence === "number"
+          ? dataObj.confidence
+          : 0
+      );
       setUploadState("extracted");
 
-    } catch (err: any) {
-      setErrorMsg(err.message || "Extraction failed. Please try again.");
-      setUploadState("error");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Extraction failed. Please try again.";
+        setErrorMsg(message);
+        setUploadState("error");
     }
   };
 
