@@ -1,13 +1,14 @@
-// middleware.ts
-import { clerkMiddleware, createRouteMatcher } from
-  "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isProtectedRoute = createRouteMatcher([
   "/history(.*)",
+  "/upload(.*)",
 ]);
 
 export default clerkMiddleware((auth, req) => {
-  if (isProtectedRoute(req)) auth.protect();
+  if (isProtectedRoute(req)) {
+    auth().protect();   // ← call auth() as function first, then .protect()
+  }
 });
 
 export const config = {
