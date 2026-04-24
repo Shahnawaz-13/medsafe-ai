@@ -22,21 +22,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body className={inter.className}>
+    <html lang="en">
+      <body className={inter.className}>
+        <ClerkProvider>
           <Navbar />
+
           <main className="min-h-screen bg-gray-50">
             {children}
           </main>
+
           <footer className="border-t border-gray-100 bg-white
                              py-6 text-center text-xs text-gray-400">
             MedSafe AI is for informational purposes only.
             Not a substitute for professional medical advice.
             © 2026 MedSafe AI
           </footer>
-        </body>
-      </html>
-    </ClerkProvider>
+        </ClerkProvider>
+      </body>
+    </html>
   );
 }
